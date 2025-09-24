@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project Forms Hub</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, getDocs, onSnapshot, query, where, doc, getDoc, updateDoc, setLogLevel, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Firebase-provided global variables
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let db, auth, userId;
+
+        const mainContainer = document.getElementById('main-container');
+
+        // Simple routing function to change views
+        window.showView = (viewId, projectId = null) => {
+            document.querySelectorAll('.app-view').forEach(view => {
+                view.classList.add('hidden');
+            });
+            const viewToShow = document.getElementById(viewId);
+            if (viewToShow) {
+                viewToShow.classList.remove('hidden');
+            }
+            if (viewId === 'project-detail-view' && projectId) {
+                loadProjectDetails(projectId);
+            }
+        };
+        
+        // Toggles the visibility of the add new project form
+        window.toggleAddProjectForm = () => {
+            const formContainer = document.getElementById('add-project-form-container');
+            formContainer.classList.toggle('hidden');
+        };
+
+        const initFirebase = async () => {
+            try {
+                const app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                setLogLevel('debug'); // Enable debug logging for Firestore
+
+                // Sign in with the provided custom token or anonymously
+                await signInWithCustomToken(auth, initialAuthToken || 'anonymous-token');
+                
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        // For multi-user apps, it is MANDATORY to show the complete userId string on the main UI.
+                        document.getElementById('user-id-display').textContent = `User ID: ${userId}`;
+                        loadDashboard();
+                    } else {
+                        // If auth fails for some reason, sign in anonymously as a fallback
+                        signInAnonymously(auth).then(() => {
+                            console.log("Signed in anonymously.");
+                        }).catch((error) => {
+                            console.error("Anonymous sign-in failed: ", error);
+                        });
+                    }
+                });
+
+            } catch (error) {
+                console.error("Firebase initialization failed: ", error);
+                mainContainer.innerHTML = '<div class="text-center p-8">Failed to initialize the application. Please check the console for details.</div>';
+            }
+        };
+
+        const getProjectCollectionRef = () => {
+            // Using the public data path for shared access
+            const collectionPath = `/artifacts/${appId}/public/data/projects`;
+            return collection(db, collectionPath);
+        };
+        
+        const loadDashboard = () => {
+            const projectsList = document.getElementById('projects-list');
+            projectsList.innerHTML = '<div class="text-center p-4">Loading projects...</div>';
+
+            const projectsRef = getProjectCollectionRef();
+            onSnapshot(projectsRef, (querySnapshot) => {
+                projectsList.innerHTML = '';
+                if (querySnapshot.empty) {
+                    projectsList.innerHTML = '<div class="text-center p-4 text-gray-500">No projects found. Use the form above to add a new project.</div>';
+                    return;
+                }
+
+                querySnapshot.forEach((doc) => {
+                    const project = doc.data();
+                    const projectId = doc.id;
+                    const projectItem = document.createElement('div');
+                    projectItem.className = 'bg-white p-2 md:p-4 rounded-lg shadow-md cursor-pointer transition-transform hover:scale-[1.01]';
+                    projectItem.innerHTML = `
+                        <h2 class="text-lg md:text-xl font-semibold text-gray-800">${project.name}</h2>
+                    `;
+                    projectItem.onclick = () => window.showView('project-detail-view', projectId);
+                    projectsList.appendChild(projectItem);
+                });
+            }, (error) => {
+                console.error("Error loading dashboard data:", error);
+                projectsList.innerHTML = '<div class="text-center p-4 text-red-500">Error loading data. See console for details.</div>';
+            });
+            window.showView('dashboard-view');
+        };
+
+        const loadProjectDetails = async (projectId) => {
+            const projectRef = doc(getProjectCollectionRef(), projectId);
+            const projectDetailsContainer = document.getElementById('project-details-container');
+            const formList = document.getElementById('forms-list');
+            const projectButtons = document.getElementById('project-action-buttons');
+
+            projectDetailsContainer.innerHTML = '<div class="text-center p-4">Loading project details...</div>';
+            formList.innerHTML = '';
+
+            projectButtons.innerHTML = ''; // No action buttons for this user role
+
+            try {
+                const projectDoc = await getDoc(projectRef);
+                if (projectDoc.exists()) {
+                    const projectData = projectDoc.data();
+                    projectDetailsContainer.innerHTML = `
+                        <h1 class="text-3xl font-bold text-gray-800 mb-2">${projectData.name}</h1>
+                        <p class="text-gray-700">Started: ${projectData.startDate}</p>
+                    `;
+
+                    // Handle Forms Tracking (mock data for now)
+                    const forms = [
+                        { name: 'Morning Safety Walk', id: 'form-1' },
+                        { name: 'Construction Tailgate Safety Meeting', id: 'form-2' },
+                        { name: 'Week One Construction Site Survey', id: 'form-3' },
+                        { name: 'Material Delivery Checklist', id: 'form-4' },
+                        { name: 'Store Satisfaction Report', id: 'form-5' }
+                    ];
+                    
+                    forms.forEach(form => {
+                        const formItem = document.createElement('div');
+                        formItem.className = 'flex justify-between items-center p-2 rounded-md bg-gray-100 mb-2';
+                        formItem.innerHTML = `
+                            <span class="text-gray-700">${form.name}</span>
+                            <div class="flex items-center space-x-2">
+                                <button class="bg-blue-500 text-white text-xs px-2 py-1 rounded-full hover:bg-blue-600 transition-colors">Submit</button>
+                                <span class="text-sm px-2 py-1 rounded-full text-white bg-red-500">Not Submitted</span>
+                            </div>
+                        `;
+                        formList.appendChild(formItem);
+                    });
+
+                } else {
+                    projectDetailsContainer.innerHTML = '<div class="text-center p-4 text-red-500">Project not found.</div>';
+                }
+            } catch (error) {
+                console.error("Error loading project details:", error);
+                projectDetailsContainer.innerHTML = '<div class="text-center p-4 text-red-500">Error loading details. See console for more information.</div>';
+            }
+        };
+
+        window.handleAddProject = async (e) => {
+            e.preventDefault();
+            const form = e.target;
+            const projectName = form.projectName.value.trim();
+            if (!projectName) return;
+
+            try {
+                const projectsRef = getProjectCollectionRef();
+                await addDoc(projectsRef, {
+                    name: projectName,
+                    startDate: new Date().toLocaleDateString(),
+                    formsRequired: 3, // Example value
+                    formsSubmitted: 0, // Example value
+                    createdBy: userId
+                });
+                form.reset();
+                toggleAddProjectForm();
+            } catch (error) {
+                console.error("Error adding document: ", error);
+            }
+        };
+
+        // Initialize Firebase and the app
+        window.onload = initFirebase;
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            @apply bg-gray-50 text-gray-800;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8 bg-gray-100 min-h-screen">
+
+    <div id="user-id-display" class="text-center text-sm text-gray-500 mb-4"></div>
+
+    <!-- Main Container -->
+    <div id="main-container" class="max-w-6xl mx-auto bg-gray-50 p-4 md:p-6 rounded-2xl shadow-xl">
+        <!-- Header -->
+        <div class="flex items-center justify-between relative mb-8">
+            <!-- Logo -->
+            <img src="https://placehold.co/150x50/ffffff/000000?text=ACT+Logo" alt="ACT Construction Logo" class="h-12 w-auto absolute left-0 top-1/2 -translate-y-1/2">
+            
+            <!-- Title -->
+            <h1 class="text-xl md:text-4xl font-extrabold text-center mx-auto text-gray-900">Project Forms Hub</h1>
+        </div>
+
+        <!-- Main Grid Layout -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+
+            <!-- Left Content Area (Project Details & Forms) -->
+            <div class="md:col-span-3">
+                <!-- Dashboard View -->
+                <div id="dashboard-view" class="app-view">
+                    <div class="text-center text-gray-500 p-8">
+                        Select a project from the right sidebar to view its details.
+                    </div>
+                </div>
+
+                <!-- Project Detail View -->
+                <div id="project-detail-view" class="app-view hidden">
+                    <button onclick="window.showView('dashboard-view')" class="text-blue-600 hover:text-blue-800 mb-3 flex items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clip-rule="evenodd" />
+                        </svg>
+                        Back to Dashboard
+                    </button>
+                    <div id="project-details-container" class="mb-4"></div>
+                    <div id="project-action-buttons" class="flex justify-end gap-2 mb-4"></div>
+
+                    <!-- Forms Tracking -->
+                    <div class="bg-white p-4 rounded-lg shadow-md mb-4">
+                        <h2 class="text-2xl font-bold mb-3 text-gray-800">Forms Tracking</h2>
+                        <div id="forms-list"></div>
+                        <!-- This is a placeholder for form submission. A real app would have different forms here. -->
+                        <div class="text-center text-sm text-gray-500 mt-3">
+                            Forms will appear here as they are created and can be submitted.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Sidebar (Project List) -->
+            <div class="md:col-span-1">
+                <!-- Add New Project Form -->
+                <button onclick="window.toggleAddProjectForm()" class="w-full bg-gray-200 text-gray-800 p-2 text-sm rounded-lg mb-4 shadow-md transition-colors hover:bg-gray-300 font-semibold flex justify-between items-center">
+                    Add a New Project
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 transform transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                    </svg>
+                </button>
+                <div id="add-project-form-container" class="bg-gray-200 p-3 rounded-lg mb-4 shadow-inner hidden">
+                    <form id="add-project-form" onsubmit="handleAddProject(event)">
+                        <input type="text" name="projectName" placeholder="Project Name" class="w-full p-2 mb-3 rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500 text-sm">
+                        <button type="submit" class="w-full bg-blue-600 text-white p-2 rounded-md font-semibold text-sm hover:bg-blue-700 transition-colors">Add Project</button>
+                    </form>
+                </div>
+
+                <!-- Projects List -->
+                <div id="projects-list" class="flex flex-col gap-2">
+                    <div class="text-center p-3 text-sm">Loading projects...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+
+
